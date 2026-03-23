@@ -1,0 +1,49 @@
+#pragma once
+
+#include <atomic>
+#include <chrono>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "core/job_id.hpp"
+#include "core/job_metadata.hpp"
+#include "core/job_result.hpp"
+#include "core/job_status.hpp"
+#include "scheduler/dependency_graph.hpp"
+#include "scheduler/job_queue.hpp"
+#include "scheduler/process_pool.hpp"
+#include "storage/execution_repository.hpp"
+#include "storage/job_registry.hpp"
+
+class Scheduler {
+public:
+    Scheduler(ProcessPool& pool, JobRegistry& registry, ExecutionRepository& executionRepository, int maxRetries = 3);
+    ~Scheduler();
+
+    JobId startJobByName(const std::string& jobName, int priority = 0);
+    JobId startJobByName(const std::string& jobName, std::vector<JobId> after, int priority = 0);
+
+    void scheduleAt(const std::string& jobName, std::chrono::system_clock::time_point when);
+    void scheduleEvery(const std::string& jobName, std::chrono::seconds interval);
+    void scheduleCron(const std::string& cronExpr, const std::string& jobName);
+
+    void cancelJob(const JobId& id);
+    std::optional<JobStatus> getJobStatus(const JobId& id) const;
+    std::optional<JobResult> getJobResult(const JobId& id) const;
+    std::vector<JobMetadata> listJobs() const;
+
+    void start();
+    void stop();
+
+private:
+    void dispatchLoop();
+
+    ProcessPool& pool_;
+    JobRegistry& registry_;
+    ExecutionRepository& executionRepository_;
+    int maxRetries_;
+    DependencyGraph depGraph_;
+    JobQueue pendingQueue_;
+};
