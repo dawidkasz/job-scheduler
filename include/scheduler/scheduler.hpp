@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <thread>
@@ -22,8 +23,9 @@ public:
     Scheduler(ProcessPool& pool, JobRegistry& registry, ExecutionRepository& executionRepository, int maxRetries = 3);
     ~Scheduler();
 
-    JobId startJobByName(const std::string& jobName, int priority = 0);
-    JobId startJobByName(const std::string& jobName, std::vector<JobId> after, int priority = 0);
+    JobId startJobByName(const std::string& jobName, nlohmann::json args = {}, int priority = 0);
+    JobId startJobByName(const std::string& jobName, std::vector<JobId> after, nlohmann::json args = {},
+                         int priority = 0);
 
     void scheduleAt(const std::string& jobName, std::chrono::system_clock::time_point when);
     void scheduleEvery(const std::string& jobName, std::chrono::seconds interval);
@@ -46,4 +48,6 @@ private:
     int maxRetries_;
     DependencyGraph depGraph_;
     JobQueue pendingQueue_;
+    std::thread dispatchThread_;
+    std::atomic<bool> running_{false};
 };
