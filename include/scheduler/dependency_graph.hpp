@@ -14,13 +14,7 @@ public:
     std::vector<JobId> getDependents(const JobId& jobId) const;
     std::vector<JobId> getDependencies(const JobId& jobId) const;
 
-    void markCompleted(const JobId& jobId);
-    bool areDependenciesMet(const JobId& jobId) const;
-
-    void removeJob(const JobId& jobId);
-
 private:
     std::unordered_map<JobId, std::vector<JobId>> dependents_;
     std::unordered_map<JobId, std::vector<JobId>> dependencies_;
-    std::unordered_set<JobId> completedIds_;
 };
