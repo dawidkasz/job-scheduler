@@ -32,8 +32,7 @@ public:
     void scheduleCron(const std::string& cronExpr, const std::string& jobName);
 
     void cancelJob(const JobId& id);
-    std::optional<JobStatus> getJobStatus(const JobId& id) const;
-    std::optional<JobResult> getJobResult(const JobId& id) const;
+    std::optional<JobMetadata> getJobById(const JobId& id) const;
     std::vector<JobMetadata> listJobs() const;
 
     void start();

@@ -2,6 +2,8 @@
 
 namespace {
 bool cmp(const std::shared_ptr<JobExecution>& a, const std::shared_ptr<JobExecution>& b) {
+    if (!a) return true;
+    if (!b) return false;
     if (a->getRunAt() != b->getRunAt())
         return a->getRunAt() > b->getRunAt();
     return a->getPriority() > b->getPriority();
