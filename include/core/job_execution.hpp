@@ -11,6 +11,7 @@
 #include "core/job_result.hpp"
 #include "core/job_status.hpp"
 
+/** One scheduled run: stable JobId, args json, priority, status lifecycle. Scheduler is the only mutator. */
 class JobExecution {
 public:
     explicit JobExecution(

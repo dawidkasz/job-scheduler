@@ -6,6 +6,7 @@
 #include "core/job_execution.hpp"
 #include "core/job_id.hpp"
 
+/** Where JobExecution objects live; swap impl if you want real persistence. */
 class ExecutionRepository {
 public:
     virtual ~ExecutionRepository() = default;

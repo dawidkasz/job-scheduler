@@ -9,6 +9,7 @@
 #include "core/job_id.hpp"
 #include "storage/execution_repository.hpp"
 
+/// Default: map under a shared_mutex, good enough for demos/tests.
 class InMemoryExecutionRepository : public ExecutionRepository {
 public:
     void add(std::shared_ptr<JobExecution> exec) override;

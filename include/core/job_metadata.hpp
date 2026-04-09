@@ -8,6 +8,7 @@
 #include "core/job_result.hpp"
 #include "core/job_status.hpp"
 
+/// Snapshot for list/get APIs — not the live execution object.
 struct JobMetadata {
     JobId id;
     std::string jobName;

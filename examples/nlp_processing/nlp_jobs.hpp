@@ -1,26 +1,6 @@
 #pragma once
 
-/// @file nlp_jobs.hpp
-/// @brief NLP text-processing pipeline as a diamond-shaped job DAG.
-///
-/// Example usage scenario:
-///   A document arrives for processing.  The first stage (Tokenize) splits the
-///   raw text into individual tokens.  Two independent analyses then run in
-///   parallel: Lowercase normalises every token to lower-case, while CountWords
-///   tallies the number of unique tokens.  Finally, FormatReport merges both
-///   results into a human-readable summary.
-///
-///   DAG topology (diamond):
-///
-///            Tokenize
-///           /        \
-///      Lowercase   CountWords
-///           \        /
-///         FormatReport
-///
-///   curl demo:
-///     # 1. start the example server (./nlp_example)
-///     # 2. run ./demo.sh
+// diamond DAG demo for the http server — Tokenize branches to Lowercase + CountWords, then FormatReport
 
 #include <algorithm>
 #include <cctype>
@@ -39,7 +19,7 @@ void simulateProcessing(int seconds = 3) {
 }
 } // namespace
 
-/// Splits args["text"] on whitespace and returns space-separated tokens.
+/** tokenize args["text"] (whitespace); strips junk chars */
 class TokenizeJob : public Job {
 public:
     TokenizeJob() : Job("tokenize") {}
@@ -68,7 +48,7 @@ public:
     }
 };
 
-/// Lowercases every character in the tokenized string from Tokenize.
+/// needs "tokenize" dep — lowercases whole string
 class LowercaseJob : public Job {
 public:
     LowercaseJob() : Job("lowercase") {}
@@ -86,7 +66,7 @@ public:
     }
 };
 
-/// Counts unique tokens in the tokenized string from Tokenize.
+/// unique token count from tokenize output (casefolded for the set)
 class CountWordsJob : public Job {
 public:
     CountWordsJob() : Job("count_words") {}
@@ -112,7 +92,7 @@ public:
     }
 };
 
-/// Merges the Lowercase text and CountWords count into a summary string.
+/// pulls lowercase + count_words, builds the summary line
 class FormatReportJob : public Job {
 public:
     FormatReportJob() : Job("format_report") {}

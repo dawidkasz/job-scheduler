@@ -5,6 +5,7 @@
 #include "core/job_context.hpp"
 #include "core/job_result.hpp"
 
+/// User-defined unit of work; register a factory name in JobRegistry, then Scheduler runs execute() in a child.
 class Job {
 public:
     explicit Job(std::string name) : name_(std::move(name)) {}

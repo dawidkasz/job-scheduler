@@ -10,6 +10,7 @@
 #include "core/job_execution.hpp"
 #include "core/job_id.hpp"
 
+/// Priority + scheduled-time heap; blocking pop with optional timeout.
 class JobQueue {
 public:
     void push(std::shared_ptr<JobExecution> exec);

@@ -1,0 +1,33 @@
+# job-scheduler — run from repo root: doxygen Doxyfile
+# HTML lands in build/docs (build/ is gitignored)
+
+PROJECT_NAME           = job-scheduler
+PROJECT_BRIEF          = "Fork-based job scheduler with DAG deps and HTTP/CLI entrypoints"
+
+OUTPUT_DIRECTORY       = build/docs
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = YES
+
+INPUT                  = include src examples
+EXCLUDE                = test
+FILE_PATTERNS          = *.hpp *.cpp
+RECURSIVE              = YES
+
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+HTML_OUTPUT            = html
+SEARCHENGINE           = YES
+
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_NO_PARAMDOC       = NO
+
+HAVE_DOT               = NO
+CLASS_DIAGRAMS         = NO
+
+# Built-in parser; clang-assisted mode needs full -I paths for FetchContent deps.
+CLANG_ASSISTED_PARSING = NO

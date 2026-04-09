@@ -1,31 +1,6 @@
 #pragma once
 
-/// @file ride_jobs.hpp
-/// @brief Uber-like ride service pipeline with a GPS sensor stub.
-///
-/// Example usage scenario:
-///   A vehicle periodically reports its GPS position.  FetchGPSData is a stub
-///   that produces random coordinates near New York City, simulating a real GPS
-///   sensor.  Two downstream jobs run in parallel: EstimateETA computes a rough
-///   arrival time to the rider's destination, and CalculateSurge derives a
-///   demand-based price multiplier from the vehicle's zone.  Finally,
-///   UpdateRideStatus merges both results into a single rider-facing status
-///   string.
-///
-///   DAG topology (diamond):
-///
-///          FetchGPSData   (periodic stub – random lat,lng)
-///           /          \
-///     EstimateETA   CalculateSurge
-///           \          /
-///        UpdateRideStatus
-///
-///   curl demo:
-///     # 1. start the example server (./ride_service_example)
-///     # 2. run ./demo.sh
-///
-///   The demo script also shows how to schedule FetchGPSData as a periodic
-///   job (kind: "every") so it fires automatically every N seconds.
+/// Fake GPS stub -> ETA vs surge in parallel -> UpdateRideStatus. Same diamond shape as the NLP example.
 
 #include <chrono>
 #include <cmath>
@@ -43,8 +18,7 @@ void simulateProcessing(int seconds = 3) {
 }
 } // namespace
 
-/// Stub: produces random GPS coordinates near NYC (40.7128 N, 74.0060 W).
-/// In production this would read from a real vehicle GPS sensor.
+/// random lat,lng around NYC — stand-in for a real sensor
 class FetchGPSDataJob : public Job {
 public:
     FetchGPSDataJob() : Job("fetch_gps_data") {}
@@ -88,9 +62,7 @@ inline double haversineKm(double lat1, double lng1, double lat2, double lng2) {
 
 } // namespace detail
 
-/// Estimates arrival time (minutes) from the vehicle's GPS position to a
-/// destination supplied via args["dest_lat"] / args["dest_lng"].
-/// Assumes an average city speed of 25 km/h.
+/** ETA minutes from gps string; dest_* in args; ~25km/h fudge */
 class EstimateETAJob : public Job {
 public:
     EstimateETAJob() : Job("estimate_eta") {}
@@ -113,8 +85,7 @@ public:
     }
 };
 
-/// Derives a surge-pricing multiplier based on the vehicle's zone.
-/// Midtown (lat > 40.715) gets a higher surge.
+/// surge multiplier from lat (midtown heuristic)
 class CalculateSurgePricingJob : public Job {
 public:
     CalculateSurgePricingJob() : Job("calculate_surge") {}
@@ -133,7 +104,7 @@ public:
     }
 };
 
-/// Combines ETA and surge pricing into a rider-facing status string.
+/// eta + surge -> status string with a fake fare
 class UpdateRideStatusJob : public Job {
 public:
     UpdateRideStatusJob() : Job("update_ride_status") {}

@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <string>
 
+/// Opaque id (uuid string); use generate() or fromString for parsing.
 class JobId {
 public:
     static JobId generate();
@@ -21,7 +22,9 @@ private:
     std::string value_;
 };
 
+/// @cond
 template <>
 struct std::hash<JobId> {
     std::size_t operator()(const JobId &id) const noexcept { return std::hash<std::string>{}(id.str()); }
 };
+/// @endcond

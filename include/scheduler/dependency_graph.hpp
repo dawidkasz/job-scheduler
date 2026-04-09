@@ -6,6 +6,7 @@
 
 #include "core/job_id.hpp"
 
+/// Parent/child edges only — Scheduler decides when dependents unblock.
 class DependencyGraph {
 public:
     void addDependency(const JobId& parentId, const JobId& childId);

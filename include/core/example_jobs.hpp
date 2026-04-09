@@ -6,7 +6,7 @@
 #include "core/job.hpp"
 #include "core/job_result.hpp"
 
-/// @brief Returns the "msg" argument as the result payload.
+/// echoes args["msg"] if set, else empty ok()
 class EchoJob : public Job {
 public:
     EchoJob() : Job("echo") {}
@@ -17,7 +17,7 @@ public:
     }
 };
 
-/// @brief Sleeps for the number of seconds given in the "seconds" argument.
+/** sleeps args["seconds"] (default 1) */
 class SleepJob : public Job {
 public:
     SleepJob() : Job("sleep") {}
@@ -28,7 +28,7 @@ public:
     }
 };
 
-/// @brief Always fails; useful for testing retry logic.
+/// always fail — handy for retry tests
 class FailJob : public Job {
 public:
     FailJob() : Job("fail") {}

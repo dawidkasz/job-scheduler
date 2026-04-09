@@ -8,6 +8,7 @@
 
 #include "core/job.hpp"
 
+/// name -> lambda that builds a fresh Job instance (blueprint registry).
 class JobRegistry {
 public:
     using JobBlueprint = std::function<std::shared_ptr<Job>()>;

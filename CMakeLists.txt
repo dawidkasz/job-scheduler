@@ -56,3 +56,14 @@ target_link_libraries(job_scheduler_http PRIVATE job_scheduler_lib)
 enable_testing()
 add_subdirectory(test)
 add_subdirectory(examples)
+
+find_package(Doxygen QUIET)
+if(DOXYGEN_FOUND)
+    add_custom_target(
+        doc
+        COMMAND "${DOXYGEN_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Doxyfile"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Generating API documentation with Doxygen"
+        VERBATIM
+    )
+endif()

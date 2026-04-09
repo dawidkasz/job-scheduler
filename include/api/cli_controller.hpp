@@ -2,6 +2,7 @@
 
 class Scheduler;
 
+/// program_options wrapper around the same scheduler ops the server exposes
 class CliController {
 public:
     explicit CliController(Scheduler& scheduler);

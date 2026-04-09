@@ -18,6 +18,8 @@
 #include "storage/execution_repository.hpp"
 #include "storage/job_registry.hpp"
 
+/// Owns the dispatch thread, pending queue, dep graph, and talks to pool + registry + execution store.
+/// start/stop around the long-running loop; everything else is enqueue / query.
 class Scheduler {
 public:
     Scheduler(ProcessPool& pool, JobRegistry& registry, ExecutionRepository& executionRepository, int maxRetries = 3);

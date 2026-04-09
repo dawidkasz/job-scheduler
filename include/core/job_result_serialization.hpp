@@ -6,6 +6,8 @@
 
 #include "core/job_result.hpp"
 
+// nlohmann ADL hooks + helpers — keep in sync with JobResult::Payload
+
 inline void to_json(nlohmann::json& j, const JobResult::Payload& payload) {
     std::visit(
         [&j](auto&& val) {

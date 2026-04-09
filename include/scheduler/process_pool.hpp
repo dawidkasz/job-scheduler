@@ -10,6 +10,7 @@
 
 #include "core/job_result.hpp"
 
+/// Fork pool with a max concurrent children; work runs in the child, result comes back over a pipe.
 class ProcessPool {
 public:
     explicit ProcessPool(std::size_t maxProcesses);

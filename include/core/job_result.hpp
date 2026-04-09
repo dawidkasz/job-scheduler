@@ -4,6 +4,7 @@
 #include <string>
 #include <variant>
 
+/// Small success/fail envelope; payload is a tight variant for json friendliness.
 struct JobResult {
     using Payload = std::variant<std::monostate, std::string, int, double>;
 
