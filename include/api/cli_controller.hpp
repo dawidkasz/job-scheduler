@@ -6,8 +6,10 @@ class CliController {
 public:
     explicit CliController(Scheduler& scheduler);
 
-    int run(int argc, char* argv[]);
+    int run();
 
 private:
+    int dispatchCommand(int argc, char* argv[]);
+
     Scheduler& scheduler_;
 };
