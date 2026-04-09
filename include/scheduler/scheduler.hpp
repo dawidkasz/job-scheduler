@@ -27,9 +27,12 @@ public:
     JobId startJobByName(const std::string& jobName, std::vector<JobId> after, nlohmann::json args = {},
                          int priority = 0);
 
-    void scheduleAt(const std::string& jobName, std::chrono::system_clock::time_point when);
-    void scheduleEvery(const std::string& jobName, std::chrono::seconds interval);
-    void scheduleCron(const std::string& cronExpr, const std::string& jobName);
+    void scheduleAt(const std::string& jobName, std::chrono::system_clock::time_point when,
+                    nlohmann::json args = {});
+    void scheduleEvery(const std::string& jobName, std::chrono::seconds interval,
+                       nlohmann::json args = {});
+    void scheduleCron(const std::string& cronExpr, const std::string& jobName,
+                      nlohmann::json args = {});
 
     void cancelJob(const JobId& id);
     std::optional<JobMetadata> getJobById(const JobId& id) const;

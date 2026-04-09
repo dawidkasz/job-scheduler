@@ -81,34 +81,36 @@ std::vector<JobMetadata> Scheduler::listJobs() const {
 }
 
 void Scheduler::scheduleAt(const std::string& jobName,
-                           std::chrono::system_clock::time_point when) {
-    std::thread([this, jobName, when] {
+                           std::chrono::system_clock::time_point when, nlohmann::json args) {
+    std::thread([this, jobName, when, args = std::move(args)] {
         std::this_thread::sleep_until(when);
         if (running_) {
-            startJobByName(jobName);
+            startJobByName(jobName, nlohmann::json(args));
         }
     }).detach();
 }
 
-void Scheduler::scheduleEvery(const std::string& jobName, std::chrono::seconds interval) {
-    std::thread([this, jobName, interval] {
+void Scheduler::scheduleEvery(const std::string& jobName, std::chrono::seconds interval,
+                                nlohmann::json args) {
+    std::thread([this, jobName, interval, args = std::move(args)] {
         while (running_) {
             std::this_thread::sleep_for(interval);
             if (running_) {
-                startJobByName(jobName);
+                startJobByName(jobName, nlohmann::json(args));
             }
         }
     }).detach();
 }
 
-void Scheduler::scheduleCron(const std::string& cronExpr, const std::string& jobName) {
+void Scheduler::scheduleCron(const std::string& cronExpr, const std::string& jobName,
+                             nlohmann::json args) {
     std::regex pattern(R"(\*/(\d+)\s+\*\s+\*\s+\*\s+\*)");
     std::smatch match;
     if (!std::regex_match(cronExpr, match, pattern)) {
         throw std::invalid_argument("Only */N * * * * cron expressions are supported");
     }
     int minutes = std::stoi(match[1]);
-    scheduleEvery(jobName, std::chrono::seconds(minutes * 60));
+    scheduleEvery(jobName, std::chrono::seconds(minutes * 60), std::move(args));
 }
 
 void Scheduler::dispatchLoop() {

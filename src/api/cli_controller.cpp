@@ -1,7 +1,10 @@
 #include "api/cli_controller.hpp"
 
+#include <chrono>
+#include <ctime>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -87,14 +90,17 @@ std::string joinFrom(std::size_t start, const std::vector<std::string>& words) {
 }
 
 int CliController::run() {
-    std::cout << "Job scheduler. Commands: submit <name> [json-args] | list | status <id> | cancel <id> | help | quit\n";
+    std::cout << "Job scheduler. submit <name> [json-args] | schedule at|every|cron ... | list | status <id> | cancel <id> | help | quit\n";
     std::string line;
     while (std::cout << "> " && std::getline(std::cin, line)) {
         auto words = splitWords(line);
         if (words.empty()) continue;
         if (words[0] == "quit" || words[0] == "exit") break;
         if (words[0] == "help") {
-            std::cout << "submit <name> [json-args]  e.g. submit echo {\"msg\":\"hi\"}\n"
+            std::cout << "submit <name> [json-args]  (default args {})\n"
+                      << "schedule at <runAtEpoch> <name> [json-args]\n"
+                      << "schedule every <seconds> <name> [json-args]\n"
+                      << "schedule cron <N> <name> [json-args]  (every N minutes, */N * * * *)\n"
                       << "list  status <id>  cancel <id>  quit\n";
             continue;
         }
@@ -108,6 +114,66 @@ int CliController::run() {
                 nlohmann::json args = nlohmann::json::parse(jsonStr);
                 auto jobId = scheduler_.startJobByName(words[1], std::move(args));
                 std::cout << jobId.str() << "\n";
+            } catch (const std::exception& e) {
+                std::cerr << "invalid args JSON: " << e.what() << "\n";
+            }
+            continue;
+        }
+        if (words[0] == "schedule") {
+            if (words.size() < 2) {
+                std::cerr << "schedule requires: at | every | cron\n";
+                continue;
+            }
+            const std::string& sub = words[1];
+            try {
+                if (sub == "at") {
+                    if (words.size() < 4) {
+                        std::cerr << "schedule at <runAtEpoch> <name> [json-args]\n";
+                        continue;
+                    }
+                    const auto epoch = std::stoll(words[2]);
+                    const std::string& jobName = words[3];
+                    std::string jsonStr = words.size() > 4 ? joinFrom(4, words) : "{}";
+                    nlohmann::json args = nlohmann::json::parse(jsonStr);
+                    auto when = std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epoch));
+                    scheduler_.scheduleAt(jobName, when, std::move(args));
+                    std::cout << "scheduled at\n";
+                } else if (sub == "every") {
+                    if (words.size() < 4) {
+                        std::cerr << "schedule every <seconds> <name> [json-args]\n";
+                        continue;
+                    }
+                    const auto sec = std::stoll(words[2]);
+                    if (sec <= 0) {
+                        std::cerr << "everySeconds must be positive\n";
+                        continue;
+                    }
+                    const std::string& jobName = words[3];
+                    std::string jsonStr = words.size() > 4 ? joinFrom(4, words) : "{}";
+                    nlohmann::json args = nlohmann::json::parse(jsonStr);
+                    scheduler_.scheduleEvery(jobName, std::chrono::seconds(sec), std::move(args));
+                    std::cout << "scheduled every\n";
+                } else if (sub == "cron") {
+                    if (words.size() < 4) {
+                        std::cerr << "schedule cron <N> <name> [json-args]\n";
+                        continue;
+                    }
+                    const int n = std::stoi(words[2]);
+                    if (n <= 0) {
+                        std::cerr << "cron N must be positive\n";
+                        continue;
+                    }
+                    const std::string& jobName = words[3];
+                    std::string jsonStr = words.size() > 4 ? joinFrom(4, words) : "{}";
+                    nlohmann::json args = nlohmann::json::parse(jsonStr);
+                    const std::string cronExpr = "*/" + std::to_string(n) + " * * * *";
+                    scheduler_.scheduleCron(cronExpr, jobName, std::move(args));
+                    std::cout << "scheduled cron\n";
+                } else {
+                    std::cerr << "unknown schedule subcommand (at|every|cron)\n";
+                }
+            } catch (const std::invalid_argument& e) {
+                std::cerr << "schedule: " << e.what() << "\n";
             } catch (const std::exception& e) {
                 std::cerr << "invalid args JSON: " << e.what() << "\n";
             }

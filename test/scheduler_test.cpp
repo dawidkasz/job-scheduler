@@ -121,3 +121,58 @@ TEST(Scheduler, RetryOnFailure) {
     EXPECT_EQ(meta->retryCount, 4);
     sched.stop();
 }
+
+TEST(Scheduler, ScheduleAtPassesArgs) {
+    ProcessPool pool(2);
+    JobRegistry reg;
+    reg.registerType("a", [] { return std::make_shared<JobA>(); });
+    InMemoryExecutionRepository repo;
+    Scheduler sched(pool, reg, repo, 1);
+    sched.start();
+    sched.scheduleAt("a", std::chrono::system_clock::from_time_t(0), {{"value", 99}});
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    auto jobs = sched.listJobs();
+    ASSERT_EQ(jobs.size(), 1u);
+    EXPECT_EQ(jobs[0].status, JobStatus::Completed);
+    ASSERT_TRUE(jobs[0].result.has_value());
+    EXPECT_EQ(std::get<int>(jobs[0].result->value), 99);
+    sched.stop();
+}
+
+TEST(Scheduler, ScheduleEveryPassesArgs) {
+    ProcessPool pool(2);
+    JobRegistry reg;
+    reg.registerType("a", [] { return std::make_shared<JobA>(); });
+    InMemoryExecutionRepository repo;
+    Scheduler sched(pool, reg, repo, 1);
+    sched.start();
+    sched.scheduleEvery("a", std::chrono::seconds(1), {{"value", 42}});
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    auto jobs = sched.listJobs();
+    ASSERT_EQ(jobs.size(), 1u);
+    EXPECT_EQ(jobs[0].status, JobStatus::Completed);
+    ASSERT_TRUE(jobs[0].result.has_value());
+    EXPECT_EQ(std::get<int>(jobs[0].result->value), 42);
+    sched.stop();
+}
+
+TEST(Scheduler, ScheduleCronValidDoesNotThrow) {
+    ProcessPool pool(1);
+    JobRegistry reg;
+    reg.registerType("dummy", [] { return std::make_shared<DummyJob>(); });
+    InMemoryExecutionRepository repo;
+    Scheduler sched(pool, reg, repo, 1);
+    sched.start();
+    EXPECT_NO_THROW(sched.scheduleCron("*/1 * * * *", "dummy", {}));
+    EXPECT_NO_THROW(sched.scheduleCron("*/15 * * * *", "dummy", {{"k", "v"}}));
+    sched.stop();
+}
+
+TEST(Scheduler, ScheduleCronInvalidThrows) {
+    ProcessPool pool(1);
+    JobRegistry reg;
+    reg.registerType("dummy", [] { return std::make_shared<DummyJob>(); });
+    InMemoryExecutionRepository repo;
+    Scheduler sched(pool, reg, repo, 1);
+    EXPECT_THROW(sched.scheduleCron("0 * * * *", "dummy", {}), std::invalid_argument);
+}

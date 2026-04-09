@@ -2,7 +2,10 @@
 
 #include <array>
 #include <algorithm>
+#include <chrono>
+#include <ctime>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 #include <boost/asio.hpp>
@@ -82,11 +85,61 @@ void handleRequest(tcp::socket& sock, Scheduler& scheduler) {
     try {
         if (method == "POST" && path == "/jobs") {
             auto parsed = nlohmann::json::parse(body);
-            nlohmann::json jobArgs = nlohmann::json::object();
-            if (parsed.contains("args") && !parsed["args"].is_null())
-                jobArgs = parsed["args"];
-            auto jobId = scheduler.startJobByName(parsed["name"].get<std::string>(), jobArgs);
-            response = makeResponse(200, nlohmann::json{{"id", jobId.str()}}.dump());
+            if (!parsed.contains("kind") || !parsed["kind"].is_string()) {
+                response = makeResponse(400, R"({"error":"kind required"})");
+            } else if (!parsed.contains("name") || !parsed["name"].is_string()) {
+                response = makeResponse(400, R"({"error":"name required"})");
+            } else if (!parsed.contains("args") || !parsed["args"].is_object()) {
+                response = makeResponse(400, R"({"error":"args object required"})");
+            } else {
+                const std::string kind = parsed["kind"].get<std::string>();
+                const std::string name = parsed["name"].get<std::string>();
+                nlohmann::json jobArgs = parsed["args"];
+                if (kind == "run") {
+                    auto jobId = scheduler.startJobByName(name, std::move(jobArgs));
+                    response = makeResponse(200, nlohmann::json{{"id", jobId.str()}}.dump());
+                } else if (kind == "at") {
+                    if (!parsed.contains("runAtEpoch") || !parsed["runAtEpoch"].is_number_integer()) {
+                        response = makeResponse(400, R"({"error":"runAtEpoch required"})");
+                    } else {
+                        const auto epoch = parsed["runAtEpoch"].get<std::int64_t>();
+                        auto when = std::chrono::system_clock::from_time_t(
+                            static_cast<std::time_t>(epoch));
+                        scheduler.scheduleAt(name, when, std::move(jobArgs));
+                        response = makeResponse(200,
+                            nlohmann::json{{"scheduled", true}, {"kind", "at"}}.dump());
+                    }
+                } else if (kind == "every") {
+                    if (!parsed.contains("everySeconds") || !parsed["everySeconds"].is_number_integer()) {
+                        response = makeResponse(400, R"({"error":"everySeconds required"})");
+                    } else {
+                        const auto sec = parsed["everySeconds"].get<std::int64_t>();
+                        if (sec <= 0) {
+                            response = makeResponse(400, R"({"error":"everySeconds must be positive"})");
+                        } else {
+                            scheduler.scheduleEvery(name, std::chrono::seconds(sec), std::move(jobArgs));
+                            response = makeResponse(200,
+                                nlohmann::json{{"scheduled", true}, {"kind", "every"}}.dump());
+                        }
+                    }
+                } else if (kind == "cron") {
+                    if (!parsed.contains("cron") || !parsed["cron"].is_string()) {
+                        response = makeResponse(400, R"({"error":"cron required"})");
+                    } else {
+                        try {
+                            scheduler.scheduleCron(parsed["cron"].get<std::string>(), name,
+                                                   std::move(jobArgs));
+                            response = makeResponse(200,
+                                nlohmann::json{{"scheduled", true}, {"kind", "cron"}}.dump());
+                        } catch (const std::invalid_argument& e) {
+                            response = makeResponse(400,
+                                nlohmann::json{{"error", e.what()}}.dump());
+                        }
+                    }
+                } else {
+                    response = makeResponse(400, R"({"error":"unknown kind"})");
+                }
+            }
 
         } else if (method == "GET" && path == "/jobs") {
             nlohmann::json arr = nlohmann::json::array();
