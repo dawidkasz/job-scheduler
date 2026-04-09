@@ -1,24 +1,14 @@
 #!/usr/bin/env bash
-# -------------------------------------------------------------------
-# NLP Processing – diamond DAG demo
-#
-# Prerequisites:
-#   1. Build the project   – cmake --build build
-#   2. Start the server    – ./build/nlp_example
-#   3. Run this script     – bash examples/nlp_processing/demo.sh
-#
-# DAG:
 #          Tokenize
 #         /        \
 #    Lowercase   CountWords
 #         \        /
 #       FormatReport
-# -------------------------------------------------------------------
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 
-# -- helpers --------------------------------------------------------
+ORIGINAL_TEXT='Re-file ticket INC-901; both SRE pods bounced yet latency never cleared.'
 
 post_job() {
     curl -s -X POST "$BASE_URL/jobs" \
@@ -31,7 +21,6 @@ get_job() {
 }
 
 extract_id() {
-    # expects JSON like {"id":"<uuid>"}
     echo "$1" | grep -oP '"id"\s*:\s*"\K[^"]+'
 }
 
@@ -50,20 +39,18 @@ wait_for_job() {
     done
 }
 
-# -- submit the diamond DAG ----------------------------------------
+echo "Original text: $ORIGINAL_TEXT"
+echo ""
+
+_json_text=${ORIGINAL_TEXT//\\/\\\\}
+_json_text=${_json_text//\"/\\\"}
 
 echo "=== 1. Submitting Tokenize ==="
-RESP=$(post_job '{
-  "kind": "run",
-  "name": "tokenize",
-  "body": {
-    "args": { "text": "The Quick Brown Fox Jumps Over The Lazy Dog" }
-  }
-}')
+RESP=$(post_job '{"kind":"run","name":"tokenize","body":{"args":{"text":"'"$_json_text"'"}}}')
 TOKENIZE_ID=$(extract_id "$RESP")
 echo "    Tokenize id: $TOKENIZE_ID"
 
-echo "=== 2. Submitting Lowercase (depends on Tokenize) ==="
+echo "=== 2. Submitting Lowercase ==="
 RESP=$(post_job "{
   \"kind\": \"run\",
   \"name\": \"lowercase\",
@@ -75,7 +62,7 @@ RESP=$(post_job "{
 LOWERCASE_ID=$(extract_id "$RESP")
 echo "    Lowercase id: $LOWERCASE_ID"
 
-echo "=== 3. Submitting CountWords (depends on Tokenize) ==="
+echo "=== 3. Submitting CountWords ==="
 RESP=$(post_job "{
   \"kind\": \"run\",
   \"name\": \"count_words\",
@@ -87,7 +74,7 @@ RESP=$(post_job "{
 COUNT_ID=$(extract_id "$RESP")
 echo "    CountWords id: $COUNT_ID"
 
-echo "=== 4. Submitting FormatReport (depends on Lowercase + CountWords) ==="
+echo "=== 4. Submitting FormatReport ==="
 RESP=$(post_job "{
   \"kind\": \"run\",
   \"name\": \"format_report\",
@@ -98,8 +85,6 @@ RESP=$(post_job "{
 }")
 REPORT_ID=$(extract_id "$RESP")
 echo "    FormatReport id: $REPORT_ID"
-
-# -- wait and display results --------------------------------------
 
 echo ""
 echo "=== Waiting for pipeline to complete... ==="
@@ -117,7 +102,7 @@ echo "--- CountWords result ---"
 wait_for_job "$COUNT_ID"
 echo ""
 
-echo "--- FormatReport (final) ---"
+echo "--- FormatReport ---"
 wait_for_job "$REPORT_ID"
 echo ""
 

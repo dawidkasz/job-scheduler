@@ -6,16 +6,14 @@
 #include "storage/in_memory_execution_repository.hpp"
 #include "storage/job_registry.hpp"
 
-#include "ride_jobs.hpp"
+#include "temperature_jobs.hpp"
 
 int main() {
     ProcessPool pool(4);
 
     JobRegistry registry;
-    registry.registerType("fetch_gps_data", [] { return std::make_shared<FetchGPSDataJob>(); });
-    registry.registerType("estimate_eta", [] { return std::make_shared<EstimateETAJob>(); });
-    registry.registerType("calculate_surge", [] { return std::make_shared<CalculateSurgePricingJob>(); });
-    registry.registerType("update_ride_status", [] { return std::make_shared<UpdateRideStatusJob>(); });
+    registry.registerType("fetch_temperature_sensor",
+                          [] { return std::make_shared<FetchTemperatureSensorJob>(); });
 
     InMemoryExecutionRepository repo;
     Scheduler scheduler(pool, registry, repo);
