@@ -55,3 +55,4 @@ target_link_libraries(job_scheduler_http PRIVATE job_scheduler_lib)
 
 enable_testing()
 add_subdirectory(test)
+add_subdirectory(examples)

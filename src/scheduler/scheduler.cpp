@@ -1,11 +1,14 @@
 #include "scheduler/scheduler.hpp"
 
 #include <algorithm>
+#include <cerrno>
+#include <poll.h>
 #include <regex>
 #include <stdexcept>
+#include <thread>
+#include <vector>
 
 #include "core/job_context.hpp"
-
 
 Scheduler::Scheduler(ProcessPool& pool, JobRegistry& registry,
                      ExecutionRepository& repo, int maxRetries)
@@ -108,36 +111,14 @@ void Scheduler::scheduleCron(const std::string& cronExpr, const std::string& job
 }
 
 void Scheduler::dispatchLoop() {
-    while (running_) {
-        auto exec = pendingQueue_.pop();
-        if (!running_ || !exec) break;
+    struct InFlight {
+        std::shared_ptr<JobExecution> exec;
+        ProcessPool::ChildProcessHandle handle;
+        std::string buf;
+    };
+    std::vector<InFlight> inFlight;
 
-        auto deps = depGraph_.getDependencies(exec->getId());
-        bool ready = std::all_of(deps.begin(), deps.end(), [&](const JobId& dep) {
-            auto depExec = executionRepository_.get(dep);
-            return depExec && depExec->getStatus() == JobStatus::Completed;
-        });
-
-        if (!ready) {
-            pendingQueue_.push(exec);
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            continue;
-        }
-
-        exec->setStatus(JobStatus::Running);
-        JobContext ctx{};
-        ctx.args = exec->getArgs();
-        for (const auto& depId : deps) {
-            auto depExec = executionRepository_.get(depId);
-            if (depExec && depExec->getResult().has_value()) {
-                ctx.dependencyResults[depExec->getJobName()] = *depExec->getResult();
-            }
-        }
-        auto handle = pool_.spawn([exec, ctx] {
-            return exec->getJob().execute(ctx);
-        });
-        auto result = pool_.readResult(handle);
-
+    auto applyResult = [&](const std::shared_ptr<JobExecution>& exec, const JobResult& result) {
         if (result.success) {
             exec->setResult(result);
             exec->setStatus(JobStatus::Completed);
@@ -148,6 +129,109 @@ void Scheduler::dispatchLoop() {
         } else {
             exec->setResult(result);
             exec->setStatus(JobStatus::Failed);
+        }
+    };
+
+    auto depsReady = [&](const JobId& id) {
+        const auto deps = depGraph_.getDependencies(id);
+        return std::all_of(deps.begin(), deps.end(), [&](const JobId& dep) {
+            const auto depExec = executionRepository_.get(dep);
+            return depExec && depExec->getStatus() == JobStatus::Completed;
+        });
+    };
+
+    auto buildCtx = [&](const std::shared_ptr<JobExecution>& exec) {
+        JobContext ctx;
+        ctx.args = exec->getArgs();
+        for (const auto& depId : depGraph_.getDependencies(exec->getId())) {
+            const auto depExec = executionRepository_.get(depId);
+            if (depExec && depExec->getResult().has_value())
+                ctx.dependencyResults[depExec->getJobName()] = *depExec->getResult();
+        }
+        return ctx;
+    };
+
+    for (;;) {
+        if (!inFlight.empty()) {
+            std::vector<struct pollfd> pfds(inFlight.size());
+            for (std::size_t i = 0; i < inFlight.size(); ++i) {
+                pfds[i].fd = inFlight[i].handle.resultFd;
+                pfds[i].events = static_cast<short>(POLLIN | POLLHUP);
+                pfds[i].revents = 0;
+            }
+            int pr = 0;
+            do {
+                pr = poll(pfds.data(), static_cast<nfds_t>(pfds.size()), 50);
+            } while (pr < 0 && errno == EINTR);
+
+            for (std::size_t i = 0; i < inFlight.size();) {
+                JobResult r;
+                if (pool_.tryDrain(inFlight[i].handle, inFlight[i].buf, r)) {
+                    applyResult(inFlight[i].exec, r);
+                    inFlight[i] = std::move(inFlight.back());
+                    inFlight.pop_back();
+                } else {
+                    ++i;
+                }
+            }
+        }
+
+        if (!running_ && inFlight.empty()) {
+            std::vector<std::shared_ptr<JobExecution>> held;
+            while (auto o = pendingQueue_.tryPop()) {
+                if (!*o) {
+                    for (auto& h : held) pendingQueue_.push(h);
+                    return;
+                }
+                held.push_back(std::move(*o));
+            }
+            for (auto& h : held) pendingQueue_.push(h);
+            return;
+        }
+
+        if (running_) {
+            std::vector<std::shared_ptr<JobExecution>> notReady;
+            bool blockedOnDeps = false;
+
+            while (auto opt = pendingQueue_.tryPop()) {
+                std::shared_ptr<JobExecution> exec = std::move(*opt);
+                if (!exec) {
+                    pendingQueue_.push(nullptr);
+                    running_ = false;
+                    break;
+                }
+                if (exec->getStatus() == JobStatus::Cancelled) continue;
+
+                if (!depsReady(exec->getId())) {
+                    notReady.push_back(std::move(exec));
+                    blockedOnDeps = true;
+                    continue;
+                }
+                if (inFlight.size() >= pool_.maxProcesses()) {
+                    notReady.push_back(std::move(exec));
+                    continue;
+                }
+                exec->setStatus(JobStatus::Running);
+                const JobContext ctx = buildCtx(exec);
+                ProcessPool::ChildProcessHandle h;
+                if (!pool_.trySpawn([exec, ctx]() { return exec->getJob().execute(ctx); }, h)) {
+                    exec->setStatus(JobStatus::Pending);
+                    notReady.push_back(std::move(exec));
+                    continue;
+                }
+                inFlight.push_back({std::move(exec), std::move(h), {}});
+            }
+            for (auto& d : notReady) pendingQueue_.push(d);
+
+            if (inFlight.empty() && blockedOnDeps) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        }
+
+        if (inFlight.empty() && pendingQueue_.empty() && running_) {
+            std::shared_ptr<JobExecution> w = pendingQueue_.pop();
+            if (!w) return;
+            pendingQueue_.push(std::move(w));
         }
     }
 }

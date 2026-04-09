@@ -26,6 +26,24 @@ std::shared_ptr<JobExecution> JobQueue::pop() {
     return top;
 }
 
+std::optional<std::shared_ptr<JobExecution>> JobQueue::tryPop() {
+    std::lock_guard lock(mutex_);
+    if (heap_.empty()) return std::nullopt;
+    std::pop_heap(heap_.begin(), heap_.end(), cmp);
+    auto top = std::move(heap_.back());
+    heap_.pop_back();
+    return top;
+}
+
+std::optional<std::shared_ptr<JobExecution>> JobQueue::popFor(std::chrono::milliseconds timeout) {
+    std::unique_lock lock(mutex_);
+    if (!cv_.wait_for(lock, timeout, [this] { return !heap_.empty(); })) return std::nullopt;
+    std::pop_heap(heap_.begin(), heap_.end(), cmp);
+    auto top = std::move(heap_.back());
+    heap_.pop_back();
+    return top;
+}
+
 bool JobQueue::remove(const JobId& id) {
     std::lock_guard lock(mutex_);
     auto it = std::find_if(heap_.begin(), heap_.end(),

@@ -1,0 +1,7 @@
+add_executable(nlp_example nlp_processing/main.cpp)
+target_include_directories(nlp_example PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/nlp_processing)
+target_link_libraries(nlp_example PRIVATE job_scheduler_lib)
+
+add_executable(ride_service_example ride_service/main.cpp)
+target_include_directories(ride_service_example PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ride_service)
+target_link_libraries(ride_service_example PRIVATE job_scheduler_lib)

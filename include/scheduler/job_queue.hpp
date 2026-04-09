@@ -1,8 +1,10 @@
 #pragma once
 
+#include <chrono>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 #include "core/job_execution.hpp"
@@ -12,6 +14,8 @@ class JobQueue {
 public:
     void push(std::shared_ptr<JobExecution> exec);
     std::shared_ptr<JobExecution> pop();
+    std::optional<std::shared_ptr<JobExecution>> tryPop();
+    std::optional<std::shared_ptr<JobExecution>> popFor(std::chrono::milliseconds timeout);
     bool remove(const JobId& id);
     std::size_t size() const;
     bool empty() const;

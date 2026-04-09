@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <functional>
 #include <mutex>
+#include <string>
 #include <unordered_set>
 
 #include "core/job_result.hpp"
@@ -22,7 +23,15 @@ public:
         int resultFd{-1};
     };
 
+    /// Returns false if the pool is already at maxProcesses (does not fork).
+    bool trySpawn(std::function<JobResult()> work, ChildProcessHandle& out);
+
+    /// Blocking spawn; throws std::runtime_error if the pool is full.
     ChildProcessHandle spawn(std::function<JobResult()> work);
+
+    /// Non-blocking read: append to buffer; on EOF reap child and set resultOut. Returns true if finished.
+    bool tryDrain(ChildProcessHandle& handle, std::string& buffer, JobResult& resultOut);
+
     void terminate(const ChildProcessHandle& handle);
     JobResult readResult(const ChildProcessHandle& handle);
     std::size_t runningCount() const;

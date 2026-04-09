@@ -3,7 +3,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <csignal>
+#include <fcntl.h>
+#include <poll.h>
 #include <stdexcept>
 #include <variant>
 
@@ -42,6 +45,18 @@ JobResult deserializeResult(const nlohmann::json& j) {
     }
     return r;
 }
+
+void writeAll(int fd, const char* data, std::size_t len) {
+    std::size_t off = 0;
+    while (off < len) {
+        ssize_t n = write(fd, data + off, len - off);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            _exit(1);
+        }
+        off += static_cast<std::size_t>(n);
+    }
+}
 }
 
 ProcessPool::ProcessPool(std::size_t maxProcesses) : maxProcesses_(maxProcesses) {}
@@ -50,7 +65,12 @@ ProcessPool::~ProcessPool() {
     shutdownAll();
 }
 
-ProcessPool::ChildProcessHandle ProcessPool::spawn(std::function<JobResult()> work) {
+bool ProcessPool::trySpawn(std::function<JobResult()> work, ChildProcessHandle& out) {
+    {
+        std::lock_guard lock(mutex_);
+        if (activeChildren_.size() >= maxProcesses_) return false;
+    }
+
     int pipefd[2];
     if (pipe(pipefd) != 0)
         throw std::runtime_error("pipe failed");
@@ -63,38 +83,108 @@ ProcessPool::ChildProcessHandle ProcessPool::spawn(std::function<JobResult()> wo
         close(pipefd[0]);
         JobResult result = work();
         std::string data = serializeResult(result).dump();
-        write(pipefd[1], data.c_str(), data.size());
+        writeAll(pipefd[1], data.data(), data.size());
         close(pipefd[1]);
         _exit(0);
     }
 
     close(pipefd[1]);
+    if (fcntl(pipefd[0], F_SETFL, O_NONBLOCK) != 0) {
+        close(pipefd[0]);
+        kill(pid, SIGKILL);
+        waitpid(pid, nullptr, 0);
+        throw std::runtime_error("fcntl O_NONBLOCK failed");
+    }
+
     std::lock_guard lock(mutex_);
     activeChildren_.insert(pid);
-    return {pid, pipefd[0]};
+    out = {pid, pipefd[0]};
+    return true;
+}
+
+ProcessPool::ChildProcessHandle ProcessPool::spawn(std::function<JobResult()> work) {
+    ChildProcessHandle h;
+    if (!trySpawn(std::move(work), h))
+        throw std::runtime_error("process pool at capacity");
+    return h;
+}
+
+bool ProcessPool::tryDrain(ChildProcessHandle& handle, std::string& buffer, JobResult& resultOut) {
+    if (handle.resultFd < 0) return true;
+
+    for (;;) {
+        char chunk[256];
+        ssize_t n = read(handle.resultFd, chunk, sizeof(chunk));
+        if (n > 0) {
+            buffer.append(chunk, static_cast<std::size_t>(n));
+            continue;
+        }
+        if (n == 0) {
+            close(handle.resultFd);
+            handle.resultFd = -1;
+            waitpid(handle.pid, nullptr, 0);
+            pid_t reapPid = handle.pid;
+            handle.pid = -1;
+            {
+                std::lock_guard lock(mutex_);
+                activeChildren_.erase(reapPid);
+            }
+            try {
+                resultOut = deserializeResult(nlohmann::json::parse(buffer));
+            } catch (...) {
+                resultOut = JobResult::fail("child process produced invalid result");
+            }
+            return true;
+        }
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN) return false;
+
+        close(handle.resultFd);
+        handle.resultFd = -1;
+        kill(handle.pid, SIGKILL);
+        waitpid(handle.pid, nullptr, 0);
+        {
+            std::lock_guard lock(mutex_);
+            activeChildren_.erase(handle.pid);
+        }
+        handle.pid = -1;
+        resultOut = JobResult::fail("read from child pipe failed");
+        return true;
+    }
 }
 
 JobResult ProcessPool::readResult(const ChildProcessHandle& handle) {
-    std::string data;
-    char buf[256];
-    ssize_t n;
-    while ((n = read(handle.resultFd, buf, sizeof(buf))) > 0) {
-        data.append(buf, static_cast<std::size_t>(n));
+    ChildProcessHandle h = handle;
+    std::string buf;
+    JobResult result;
+    struct pollfd pfd {};
+    pfd.fd = h.resultFd;
+    pfd.events = POLLIN | POLLHUP;
+
+    while (!tryDrain(h, buf, result)) {
+        int pr = 0;
+        do {
+            pr = poll(&pfd, 1, -1);
+        } while (pr < 0 && errno == EINTR);
+        if (pr < 0) {
+            if (h.resultFd >= 0) close(h.resultFd);
+            if (h.pid >= 0) {
+                kill(h.pid, SIGKILL);
+                waitpid(h.pid, nullptr, 0);
+                std::lock_guard lock(mutex_);
+                activeChildren_.erase(h.pid);
+            }
+            return JobResult::fail("poll on child pipe failed");
+        }
+        pfd.revents = 0;
     }
-    close(handle.resultFd);
-    waitpid(handle.pid, nullptr, 0);
-    std::lock_guard lock(mutex_);
-    activeChildren_.erase(handle.pid);
-    try {
-        return deserializeResult(nlohmann::json::parse(data));
-    } catch (...) {
-        return JobResult::fail("child process produced invalid result");
-    }
+    return result;
 }
 
 void ProcessPool::terminate(const ChildProcessHandle& handle) {
+    if (handle.pid < 0) return;
     kill(handle.pid, SIGTERM);
-    close(handle.resultFd);
+    if (handle.resultFd >= 0) close(handle.resultFd);
     waitpid(handle.pid, nullptr, 0);
     std::lock_guard lock(mutex_);
     activeChildren_.erase(handle.pid);
