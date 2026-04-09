@@ -90,14 +90,14 @@ std::string joinFrom(std::size_t start, const std::vector<std::string>& words) {
 }
 
 int CliController::run() {
-    std::cout << "Job scheduler. submit <name> [json-args] | schedule at|every|cron ... | list | status <id> | cancel <id> | help | quit\n";
+    std::cout << "Job scheduler. submit <name> [json-body] | schedule ... | list | status <id> | cancel <id> | help | quit\n";
     std::string line;
     while (std::cout << "> " && std::getline(std::cin, line)) {
         auto words = splitWords(line);
         if (words.empty()) continue;
         if (words[0] == "quit" || words[0] == "exit") break;
         if (words[0] == "help") {
-            std::cout << "submit <name> [json-args]  (default args {})\n"
+            std::cout << "submit <name> {\"args\":{...} [, \"dependsOn\":[\"uuid\"]]}\n"
                       << "schedule at <runAtEpoch> <name> [json-args]\n"
                       << "schedule every <seconds> <name> [json-args]\n"
                       << "schedule cron <N> <name> [json-args]  (every N minutes, */N * * * *)\n"
@@ -109,11 +109,46 @@ int CliController::run() {
                 std::cerr << "submit requires a job name\n";
                 continue;
             }
-            std::string jsonStr = words.size() > 2 ? joinFrom(2, words) : "{}";
+            std::string jsonStr =
+                words.size() > 2 ? joinFrom(2, words) : std::string(R"({"args":{}})");
             try {
-                nlohmann::json args = nlohmann::json::parse(jsonStr);
-                auto jobId = scheduler_.startJobByName(words[1], std::move(args));
+                nlohmann::json parsed = nlohmann::json::parse(jsonStr);
+                if (!parsed.is_object() || !parsed.contains("args") ||
+                    !parsed["args"].is_object()) {
+                    std::cerr << "submit: expected {\"args\":{...}} with optional dependsOn\n";
+                    continue;
+                }
+                std::vector<JobId> deps;
+                if (parsed.contains("dependsOn") && !parsed["dependsOn"].is_null()) {
+                    const auto& depJson = parsed["dependsOn"];
+                    if (!depJson.is_array()) {
+                        throw std::invalid_argument(
+                            "dependsOn must be a JSON array of UUID strings");
+                    }
+                    for (const auto& el : depJson) {
+                        if (!el.is_string()) {
+                            throw std::invalid_argument(
+                                "dependsOn entries must be UUID strings");
+                        }
+                        deps.push_back(JobId::fromString(el.get<std::string>()));
+                    }
+                }
+                nlohmann::json jobArgs = std::move(parsed["args"]);
+                bool unknownDep = false;
+                for (const auto& depId : deps) {
+                    if (!scheduler_.getJobById(depId)) {
+                        unknownDep = true;
+                        break;
+                    }
+                }
+                if (unknownDep) {
+                    std::cerr << "unknown dependency id\n";
+                    continue;
+                }
+                auto jobId = scheduler_.startJobByName(words[1], std::move(deps), std::move(jobArgs));
                 std::cout << jobId.str() << "\n";
+            } catch (const std::invalid_argument& e) {
+                std::cerr << "submit: " << e.what() << "\n";
             } catch (const std::exception& e) {
                 std::cerr << "invalid args JSON: " << e.what() << "\n";
             }

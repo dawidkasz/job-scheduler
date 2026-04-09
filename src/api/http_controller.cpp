@@ -7,6 +7,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <boost/asio.hpp>
 #include <nlohmann/json.hpp>
@@ -89,15 +90,47 @@ void handleRequest(tcp::socket& sock, Scheduler& scheduler) {
                 response = makeResponse(400, R"({"error":"kind required"})");
             } else if (!parsed.contains("name") || !parsed["name"].is_string()) {
                 response = makeResponse(400, R"({"error":"name required"})");
-            } else if (!parsed.contains("args") || !parsed["args"].is_object()) {
-                response = makeResponse(400, R"({"error":"args object required"})");
+            } else if (!parsed.contains("body") || !parsed["body"].is_object() ||
+                       !parsed["body"].contains("args") || !parsed["body"]["args"].is_object()) {
+                response = makeResponse(
+                    400, R"({"error":"body with args object required, optional dependsOn"})");
             } else {
                 const std::string kind = parsed["kind"].get<std::string>();
                 const std::string name = parsed["name"].get<std::string>();
-                nlohmann::json jobArgs = parsed["args"];
+                nlohmann::json& jobBody = parsed["body"];
+                nlohmann::json jobArgs = jobBody["args"];
                 if (kind == "run") {
-                    auto jobId = scheduler.startJobByName(name, std::move(jobArgs));
-                    response = makeResponse(200, nlohmann::json{{"id", jobId.str()}}.dump());
+                    try {
+                        std::vector<JobId> deps;
+                        if (jobBody.contains("dependsOn") && !jobBody["dependsOn"].is_null()) {
+                            const auto& depJson = jobBody["dependsOn"];
+                            if (!depJson.is_array()) {
+                                throw std::invalid_argument(
+                                    "dependsOn must be a JSON array of UUID strings");
+                            }
+                            for (const auto& el : depJson) {
+                                if (!el.is_string()) {
+                                    throw std::invalid_argument(
+                                        "dependsOn entries must be UUID strings");
+                                }
+                                deps.push_back(JobId::fromString(el.get<std::string>()));
+                            }
+                        }
+                        for (const auto& depId : deps) {
+                            if (!scheduler.getJobById(depId)) {
+                                response = makeResponse(
+                                    400, nlohmann::json{{"error", "unknown dependency id"}}.dump());
+                                break;
+                            }
+                        }
+                        if (response.empty()) {
+                            auto jobId =
+                                scheduler.startJobByName(name, std::move(deps), std::move(jobArgs));
+                            response = makeResponse(200, nlohmann::json{{"id", jobId.str()}}.dump());
+                        }
+                    } catch (const std::invalid_argument& e) {
+                        response = makeResponse(400, nlohmann::json{{"error", e.what()}}.dump());
+                    }
                 } else if (kind == "at") {
                     if (!parsed.contains("runAtEpoch") || !parsed["runAtEpoch"].is_number_integer()) {
                         response = makeResponse(400, R"({"error":"runAtEpoch required"})");
