@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <thread>
+#include <unordered_map>
 #include <variant>
 
 #include "core/job_metadata.hpp"
@@ -38,6 +39,32 @@ public:
             }
         }
         return JobResult::ok(sum);
+    }
+};
+
+class StaticParentJob : public Job {
+public:
+    StaticParentJob() : Job("static_parent") {}
+    JobResult execute(const JobContext& ctx) override {
+        return JobResult::ok(ctx.args.value("base", 100));
+    }
+};
+
+class StaticChildJobA : public Job {
+public:
+    StaticChildJobA() : Job("static_child_a") {}
+    JobResult execute(const JobContext& ctx) override {
+        const int base = std::get<int>(ctx.dependencyResults.at("static_parent").value);
+        return JobResult::ok(base + 1);
+    }
+};
+
+class StaticChildJobB : public Job {
+public:
+    StaticChildJobB() : Job("static_child_b") {}
+    JobResult execute(const JobContext& ctx) override {
+        const int base = std::get<int>(ctx.dependencyResults.at("static_parent").value);
+        return JobResult::ok(base + 2);
     }
 };
 
@@ -103,6 +130,37 @@ TEST(Scheduler, JobWithTwoDependencies) {
     EXPECT_EQ(meta->status, JobStatus::Completed);
     ASSERT_TRUE(meta->result.has_value());
     EXPECT_EQ(std::get<int>(meta->result->value), 27);
+    sched.stop();
+}
+
+TEST(Scheduler, ParentThenChildrenViaExplicitJobIds) {
+    ProcessPool pool(4);
+    JobRegistry reg;
+    reg.registerType("static_parent", [] { return std::make_shared<StaticParentJob>(); });
+    reg.registerType("static_child_a", [] { return std::make_shared<StaticChildJobA>(); });
+    reg.registerType("static_child_b", [] { return std::make_shared<StaticChildJobB>(); });
+    InMemoryExecutionRepository repo;
+    Scheduler sched(pool, reg, repo, 1);
+    sched.start();
+    auto idParent = sched.startJobByName("static_parent", {{"base", 10}});
+    sched.startJobByName("static_child_a", {idParent}, {});
+    sched.startJobByName("static_child_b", {idParent}, {});
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    auto parentMeta = sched.getJobById(idParent);
+    ASSERT_TRUE(parentMeta.has_value());
+    EXPECT_EQ(parentMeta->status, JobStatus::Completed);
+    ASSERT_TRUE(parentMeta->result.has_value());
+    EXPECT_EQ(std::get<int>(parentMeta->result->value), 10);
+    EXPECT_EQ(sched.listJobs().size(), 3u);
+
+    std::unordered_map<std::string, int> byName;
+    for (const auto& meta : sched.listJobs()) {
+        ASSERT_TRUE(meta.result.has_value());
+        byName[meta.jobName] = std::get<int>(meta.result->value);
+    }
+    EXPECT_EQ(byName["static_parent"], 10);
+    EXPECT_EQ(byName["static_child_a"], 11);
+    EXPECT_EQ(byName["static_child_b"], 12);
     sched.stop();
 }
 

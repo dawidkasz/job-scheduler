@@ -28,13 +28,7 @@ void Scheduler::stop() {
 }
 
 JobId Scheduler::startJobByName(const std::string& jobName, nlohmann::json args, int priority) {
-    auto job = registry_.create(jobName);
-    auto exec = std::make_shared<JobExecution>(job, priority,
-                                               std::chrono::system_clock::now(),
-                                               std::move(args));
-    executionRepository_.add(exec);
-    pendingQueue_.push(exec);
-    return exec->getId();
+    return startJobByName(jobName, {}, std::move(args), priority);
 }
 
 JobId Scheduler::startJobByName(const std::string& jobName, std::vector<JobId> after,
@@ -43,7 +37,7 @@ JobId Scheduler::startJobByName(const std::string& jobName, std::vector<JobId> a
     auto exec = std::make_shared<JobExecution>(job, priority,
                                                std::chrono::system_clock::now(),
                                                std::move(args));
-    auto newId = exec->getId();
+    const JobId newId = exec->getId();
     executionRepository_.add(exec);
     for (const auto& depId : after) {
         depGraph_.addDependency(depId, newId);
